@@ -3,6 +3,14 @@ open Graphics
 open Graphics_utils
 open Cmq
 
+(*
+ * TODO
+ * - config で --process指定
+ * - visual で荷重を可視化
+ * - 可視化する行を上下キーで切り替え
+ *)
+
+
 module Interpriter =
     struct
         
