@@ -37,7 +37,7 @@ let init (title) =
 let run active_events actions = 
     let rec run_rec () =
         let status = wait_next_event active_events in
-        if status.keypressed then ()
+        if status.keypressed && status.key = 'q' then ()
         else begin
             clear_graph ();
             actions |> List.rev |> List.iter (fun f -> f (status));

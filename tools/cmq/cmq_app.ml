@@ -38,7 +38,7 @@ module Interpriter =
             | _ -> 
                 []
 
-        let interprit lines index =
+        let interprit ?(print=true) lines index =
             let line = lines.(index) in
             let (cmnd, attr_tokens) = Parser.split_cmnd_attrs (line) in
             let loads =
@@ -61,7 +61,7 @@ module Interpriter =
                 |> Cmq.sum 
             in
             let () = 
-                if cmnd = "End" then Cmq.print (cmq)
+                if cmnd = "End" && print then Cmq.print (cmq)
             in    
             cmq
     end
@@ -145,16 +145,23 @@ module Visual =
             |> ignore
 
         let draw_cmq lines status = 
-            let cmq  = Interpriter.interprit lines !line_index_ref in 
+            let cmq  = Interpriter.interprit ~print:false lines !line_index_ref in 
             Graphics.moveto 20 50;
             Graphics.set_color blue;
             Graphics.draw_string (Cmq.to_string cmq)
-
+        
+        let key_action lines status = 
+            let length = Array.length (lines) in 
+            match status.key with
+            | 'u' -> line_index_ref := (!line_index_ref + length - 1) mod length
+            | 'd' -> line_index_ref := (!line_index_ref + length + 1) mod length
+            | _   -> ()
 
         (* 描画用処理 *)
         let visualize (lines) = 
             let () = init "cmq" in
             default_actions 
+            |> push (key_action (lines))
             |> push (draw_beam)
             |> push (draw_commands (lines))
             |> push (draw_cmq (lines))

@@ -1,4 +1,4 @@
 Concentration p1:1.0 x1:1.0 l:2.0
-Concentration p1:2.0 x1:1.0 l:2.0
+Concentration p1:2.0 x1:10.0 l:2.0
 Sum
 End
