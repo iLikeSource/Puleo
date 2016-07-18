@@ -24,6 +24,9 @@ module Cmq =
         let print t = 
             Printf.printf "Cmq ca:%.2f cb:%.2f qa:%.2f qb:%.2f m0:%.2f"
                           t.ca t.cb t.qa t.qb t.m0
+        let to_string t = 
+            Printf.sprintf "Cmq ca:%.2f cb:%.2f qa:%.2f qb:%.2f m0:%.2f"
+                           t.ca t.cb t.qa t.qb t.m0
 
         (** CMQ荷重を加算する *)
         let add (x, y) = {
@@ -100,3 +103,19 @@ module DistributionLoad =
                 Cmq.integration ~l:t.l ~f:f (t.x1, t.x2)
 
     end
+;;
+
+module BeamLoad =
+    struct
+        type t = 
+            | Concentration of ConcentrationLoad.t
+            | Distribution  of DistributionLoad.t
+
+        let to_cmq = function
+            | Concentration (x) -> ConcentrationLoad.to_cmq (x)
+            | Distribution  (x) -> DistributionLoad.to_cmq (x)
+
+
+    end
+
+
