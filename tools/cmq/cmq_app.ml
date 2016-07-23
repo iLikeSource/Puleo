@@ -6,26 +6,22 @@ open Cmq
 (*
  * TODO
  * - config で --process指定
- * - visual で荷重を可視化
  *)
 
 
 module Interpriter =
     struct
-        
-        let to_load (line) = 
+        (** コマンドを解釈して荷重に変換 *)
+        let to_loads lines index = 
             let open Parser in
-            let (cmnd, attr_tokens) = Parser.split_cmnd_attrs (line) in
-            let attrs = Parser.read_attr (attr_tokens) in
-            match cmnd with
-            | "Concentration" -> 
+            let parse_concentration_load (attrs) = 
                 let l    = attrs |> Attr.find "l" in
                 let p1   = attrs |> Attr.find "p1" in
                 let x1   = attrs |> Attr.find "x1" in
                 let load = ConcentrationLoad.create ~l ~p1 ~x1 in
                 [ BeamLoad.Concentration (load) ]
-
-            | "Distribution" -> 
+            in
+            let parse_distribution_load (attrs) = 
                 let l    = attrs |> Attr.find "l" in
                 let p1   = attrs |> Attr.find "p1" in
                 let p2   = attrs |> Attr.find "p2" in
@@ -33,26 +29,37 @@ module Interpriter =
                 let x2   = attrs |> Attr.find "x2" in
                 let load = DistributionLoad.create ~l ~p1 ~p2 ~x1 ~x2 in 
                 [ BeamLoad.Distribution (load) ]
-
-            | _ -> 
-                []
-
-        let to_loads lines index = 
+            in
+            let parse_load (line) = 
+                let (cmnd, attr_tokens) = Parser.split_cmnd_attrs (line) in
+                let attrs = Parser.read_attr (attr_tokens) in
+                match cmnd with
+                | "Concentration" -> parse_concentration_load (attrs) 
+                | "Distribution"  -> parse_distribution_load (attrs) 
+                | _               -> [] 
+            in
             let line = lines.(index) in
-            let (cmnd, attr_tokens) = Parser.split_cmnd_attrs (line) in
+            let (cmnd, _) = Parser.split_cmnd_attrs (line) in
             match cmnd with
-            | "Concentration" | "Distribution" -> 
-                to_load (line)
-            | "Sum" | "End" -> 
+            | "Concentration" 
+            | "Distribution" -> 
+                (* コマンドによる荷重を評価する *)
+                parse_load (line)
+
+            | "Sum" 
+            | "End" ->
+                (* 現在の行よりも手前の行をすべて評価する *)
                 if index = 0 
                 then []
                 else
                     Array.sub lines 0 index
-                    |> Array.map (fun line -> to_load (line))    
+                    |> Array.map (fun line -> parse_load (line))    
                     |> Array.to_list
                     |> List.concat
+
             | _ -> []
 
+        (** コマンド行を解釈する *)
         let interprit ?(print=true) lines index =
             let line = lines.(index) in
             let (cmnd, attr_tokens) = Parser.split_cmnd_attrs (line) in
@@ -62,27 +69,27 @@ module Interpriter =
                 |> List.map (fun load -> BeamLoad.to_cmq (load)) 
                 |> Cmq.sum 
             in
-            let () = 
-                if cmnd = "End" && print then Cmq.print (cmq)
-            in    
+            (* 指定により出力する *)
+            if cmnd = "End" && print then Cmq.print (cmq);
             cmq
     end
 
 module Visual = 
     struct
         (** 描画用処理 *)
-        let beam_x0 = 200
-        let beam_x1 = 400
+        let beam_x1 = 200
+        let beam_x2 = 400
         let beam_y  = 300
 
         (** 状態 *)
         let line_index_ref = ref 0
         
+        (** 梁の描画 *)
         let draw_beam _ =
             Graphics.set_color black;
             Graphics.set_line_width 3;
-            Graphics.moveto  beam_x0 beam_y;
-            Graphics.lineto  beam_x1 beam_y
+            Graphics.moveto  beam_x1 beam_y;
+            Graphics.lineto  beam_x2 beam_y
         
         (** 集中荷重を描画 *)
         let draw_concentration_load (c_load:ConcentrationLoad.t) = 
@@ -91,8 +98,8 @@ module Visual =
             let x = 
                 let x1 = c_load.x1 in
                 let l  = c_load.l in
-                let beam_length = float_of_int (beam_x1 - beam_x0) in
-                beam_x0 + int_of_float (beam_length *. (x1 /. l))
+                let beam_length = float_of_int (beam_x2 - beam_x1) in
+                beam_x1 + int_of_float (beam_length *. (x1 /. l))
             in
             let p = c_load.p1 in
             let load_start_y = beam_y + 40 in
@@ -106,27 +113,33 @@ module Visual =
             Graphics.moveto x (load_start_y + 10);
             Printf.sprintf "%.2f" p |>  draw_string 
 
+        (** 分布荷重を描画 *)
         let draw_distribution_load (d_load:DistributionLoad.t) = 
             Graphics.set_line_width 1;
             let open DistributionLoad in
-            let (x1, x2) = 
-                let x1 = d_load.x1 in
-                let x2 = d_load.x2 in
-                let l  = d_load.l in
-                let beam_length = float_of_int (beam_x1 - beam_x0) in
-                (beam_x0 + int_of_float (beam_length *. (x1 /. l)),
-                 beam_x0 + int_of_float (beam_length *. (x2 /. l)))
-            in
+            let (x1, x2) = (d_load.x1, d_load.x2) in
             let (p1, p2) = (d_load.p1, d_load.p2) in
-            let line_grad = 10 * int_of_float (p2 -. p1) / (x2 - x1) in
-            let beam_y1 = beam_y + 20 in
-            let f (x) = beam_y1 + (line_grad * (x - x1)) in
-            let load_start_y1 = f (x1) in 
-            let load_start_y2 = f (x2) in
-            Graphics.moveto  x1  load_start_y1;
-            Graphics.lineto  x2  load_start_y2;
+            let (draw_x1, draw_x2) = 
+                let l  = d_load.l in
+                let beam_length = float_of_int (beam_x2 - beam_x1) in
+                (beam_x1 + int_of_float (beam_length *. (x1 /. l)),
+                 beam_x1 + int_of_float (beam_length *. (x2 /. l)))
+            in
+            (* 分布荷重の描画用勾配 *)
+            let line_grad = 10 * int_of_float (p2 -. p1) / (draw_x2 - draw_x1) in
             
+            (* 分布荷重の高さ計算用関数 *)
+            let f (x) = beam_y + 20 + (line_grad * (x - draw_x1)) in
+            
+            (* 分布荷重の開始点と終了点の矢印元端を結ぶ線を描画 *)
+            let load_start_y1 = f (draw_x1) in 
+            let load_start_y2 = f (draw_x2) in
+            Graphics.moveto  draw_x1  load_start_y1;
+            Graphics.lineto  draw_x2  load_start_y2;
+            
+            (* 分布荷重の矢印を描画 *)
             let rec draw_arrow x f = 
+                let arrow_interval = 10 in
                 let draw x =
                     let start_y = f (x) in
                     Graphics.moveto  x  start_y;
@@ -135,14 +148,14 @@ module Visual =
                     Graphics.moveto  x  beam_y;
                     Graphics.rlineto (+5) (+5)
                 in
-                if x2 < x 
-                then draw (x2)
+                if draw_x2 < x then 
+                    draw (draw_x2)
                 else ( 
                     draw (x);
-                    draw_arrow (x + 10) f
+                    draw_arrow (x + arrow_interval) f
                 )
             in
-            draw_arrow x1 f
+            draw_arrow draw_x1 f
 
 
         (** 荷重を表示 *)
@@ -176,12 +189,32 @@ module Visual =
             ) (x0, y0)
             |> ignore
 
-        let draw_cmq lines status = 
+        (** CMQ計算結果を描画する *)
+        let draw_cmq lines status =
+            Graphics.set_color blue;
+            
+            let open Cmq in
             let cmq  = Interpriter.interprit ~print:false lines !line_index_ref in 
+            
+            (* 始端 *)
+            Graphics.moveto (beam_x1 - 80) (beam_y + 10);
+            Printf.sprintf "C:%.2f" cmq.ca |> Graphics.draw_string;
+            Graphics.moveto (beam_x1 - 80) (beam_y - 20);
+            Printf.sprintf "Q:%.2f" cmq.qa |> Graphics.draw_string;
+            
+            (* 終端 *)
+            Graphics.moveto (beam_x2 + 10) (beam_y + 10);
+            Printf.sprintf "C:%.2f" cmq.cb |> Graphics.draw_string;
+            Graphics.moveto (beam_x2 + 10) (beam_y - 20);
+            Printf.sprintf "Q:%.2f" cmq.qb |> Graphics.draw_string;
+
+
+            (* 画面下部に出力コマンドを表示 *)
             Graphics.moveto 20 50;
             Graphics.set_color blue;
             Graphics.draw_string (Cmq.to_string cmq)
         
+        (** キーボードアクション定義 *)
         let key_action lines status = 
             let length = Array.length (lines) in 
             match status.key with
@@ -189,7 +222,7 @@ module Visual =
             | 'd' -> line_index_ref := (!line_index_ref + length + 1) mod length
             | _   -> ()
 
-        (* 描画用処理 *)
+        (** 描画用処理 *)
         let visualize (lines) = 
             let () = init "cmq" in
             default_actions 
@@ -205,7 +238,7 @@ module Visual =
 
 module App = 
     struct
-
+        (** アプリケーション設定 *)
         type config = {
             arg_index     : int;
             input_file    : string option;
@@ -214,12 +247,14 @@ module App =
             sample_out    : bool;
         }
 
+        (** オプションコマンドを表すレコード *)
         type option_command = {
             key         : string;
             description : string;
             action      : string array * int -> config
         }
 
+        (** 設定初期化 *)
         let init () = {
             arg_index     = 1;
             input_file    = None;
@@ -228,6 +263,7 @@ module App =
             sample_out    = false;
         }
 
+        (** 入力ファイルのサンプル *)
         let sample_in () = 
             Printf.printf "## Definition of concentration load \n";
             Printf.printf "# x1:loading position\n";
@@ -246,42 +282,50 @@ module App =
             Printf.printf "## Quit computation \n";
             Printf.printf "End\n"
 
+        (** 出力ファイルのサンプル *)
         let sample_out () = 
             Printf.printf "## Output of CMQ \n";
             Printf.printf "Cmq ca:150.0 cb:200.0 qa:100.0 qb:200.0 m0:50.0\n"
             
-
+        (** コマンドライン引数を解釈する *)
         let rec parse_args (args:string array) config : config =
             let length = Array.length (args) in 
             let index  = config.arg_index in
             if index < length then
                 match args.(index) with
                 | "-i" when index < length - 1 -> 
+                    (* 入力ファイル名の設定 *)
                     let file_name = args.(index + 1) in
                     { config with input_file = Some (file_name);
                                   arg_index  = index + 2 } 
                     |> parse_args (args) 
 
                 | "--sample_in"  -> 
+                    (* サンプル入力ファイル出力 *)
                     { config with sample_in = true; 
                                   arg_index = index + 1 }     
                     |> parse_args (args)
 
                 | "--sample_out" ->  
+                    (* サンプル出力ファイル出力 *)
                     { config with sample_out = true;     
                                   arg_index  = index + 1 }     
                     |> parse_args (args)
 
                 | "--visual" -> 
+                    (* 可視化 *)
                     { config with visualization = true; 
                                   arg_index     = index + 1 }     
                     |> parse_args (args)
 
                 | _ -> 
+                    (* 解釈できないコマンド指定 *)
                     { config with arg_index = index + 1 } 
                     |> parse_args (args) 
-            else config
 
+            else config
+        
+        (** コマンドライン引数を解釈 *)
         let parse (argv) = 
             let config = init () |> parse_args (argv) in
             
@@ -340,10 +384,7 @@ module App =
 
 ;;
 
-(* 
- Visual.visualize ()
-*)
-
+(** エントリーポイント *)
 let argv = Sys.argv in
 if Array.length (argv) > 0 then
     App.parse (argv)
