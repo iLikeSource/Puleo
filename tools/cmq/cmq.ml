@@ -57,10 +57,10 @@ module Cmq =
             let dx    = range /. (float_of_int div) in
             
             (* dx区間に作用する荷重 *)
-            let p (x) = f (x) /. dx in
+            let p (x) = f (x) *. dx in
             
             (* 集中荷重として計算 *)
-            Array.init div (fun i -> dx *. (0.5 +. float_of_int (i)))
+            Array.init div (fun i -> x1 +. dx *. (0.5 +. float_of_int (i)))
             |> Array.map (fun x -> concentration_load ~p:(p (x)) ~l ~x)
             |> Array.to_list
             |> sum

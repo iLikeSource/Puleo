@@ -7,7 +7,6 @@ open Cmq
  * TODO
  * - config で --process指定
  * - visual で荷重を可視化
- * - 可視化する行を上下キーで切り替え
  *)
 
 
@@ -38,23 +37,26 @@ module Interpriter =
             | _ -> 
                 []
 
+        let to_loads lines index = 
+            let line = lines.(index) in
+            let (cmnd, attr_tokens) = Parser.split_cmnd_attrs (line) in
+            match cmnd with
+            | "Concentration" | "Distribution" -> 
+                to_load (line)
+            | "Sum" | "End" -> 
+                if index = 0 
+                then []
+                else
+                    Array.sub lines 0 index
+                    |> Array.map (fun line -> to_load (line))    
+                    |> Array.to_list
+                    |> List.concat
+            | _ -> []
+
         let interprit ?(print=true) lines index =
             let line = lines.(index) in
             let (cmnd, attr_tokens) = Parser.split_cmnd_attrs (line) in
-            let loads =
-                match cmnd with
-                | "Concentration" | "Distribution" -> 
-                    to_load (line)
-                | "Sum" | "End" -> 
-                    if index = 0 
-                    then []
-                    else
-                        Array.sub lines 0 index
-                        |> Array.map (fun line -> to_load (line))    
-                        |> Array.to_list
-                        |> List.concat
-                | _ -> []
-            in
+            let loads = to_loads lines index in
             let cmq = 
                 loads 
                 |> List.map (fun load -> BeamLoad.to_cmq (load)) 
@@ -82,49 +84,79 @@ module Visual =
             Graphics.moveto  beam_x0 beam_y;
             Graphics.lineto  beam_x1 beam_y
         
-        let draw_arrow (x, y) = 
-          Graphics.moveto  x  y;
-          Graphics.lineto  x  beam_y;
-          if y >= beam_y then (
-              Graphics.rlineto (-10) (+10); 
-              Graphics.moveto  x  beam_y;
-              Graphics.rlineto (+10) (+10)
-          )
-          else (
-              Graphics.rlineto (-10) (-10); 
-              Graphics.moveto  x  beam_y;
-              Graphics.rlineto (+10) (-10)
-          )
-        
-        (*
-        let draw_load (status) = 
-            (* CMQの計算 *)
-            let calc_cmq (x) = 
-              let length = float_of_int (beam_x1 - beam_x0) in
-              let pos    = float_of_int (      x - beam_x0) in
-              let force  = 1.0 in
-              Cmq.concentration_load ~l:length ~p:force ~x:pos
-            in
-        
-            let (mouse_x, mouse_y) = (status.mouse_x, status.mouse_y) in
+        (** 集中荷重を描画 *)
+        let draw_concentration_load (c_load:ConcentrationLoad.t) = 
+            Graphics.set_line_width 3;
+            let open ConcentrationLoad in
             let x = 
-              if      mouse_x < beam_x0 then beam_x0
-              else if mouse_x > beam_x1 then beam_x1
-              else                           mouse_x
+                let x1 = c_load.x1 in
+                let l  = c_load.l in
+                let beam_length = float_of_int (beam_x1 - beam_x0) in
+                beam_x0 + int_of_float (beam_length *. (x1 /. l))
             in
-            let y = beam_y + 50 in
-            Graphics.set_color blue;
-            Graphics.set_line_width 2;
-            draw_arrow (x, y);
-        
-            let cmq = calc_cmq (mouse_x) in
-            Graphics.moveto       50   400;
-            Printf.sprintf "CL=%.2f" cmq.Cmq.ca |> Graphics.draw_string;
-            Graphics.moveto       50   390;     
-            Printf.sprintf "CR=%.2f" cmq.Cmq.cb |> Graphics.draw_string 
-        *)
+            let p = c_load.p1 in
+            let load_start_y = beam_y + 40 in
+            Graphics.moveto  x  load_start_y;
+            Graphics.lineto  x  beam_y;
+            let () = 
+                Graphics.rlineto (-10) (+10); 
+                Graphics.moveto  x  beam_y;
+                Graphics.rlineto (+10) (+10)
+            in
+            Graphics.moveto x (load_start_y + 10);
+            Printf.sprintf "%.2f" p |>  draw_string 
+
+        let draw_distribution_load (d_load:DistributionLoad.t) = 
+            Graphics.set_line_width 1;
+            let open DistributionLoad in
+            let (x1, x2) = 
+                let x1 = d_load.x1 in
+                let x2 = d_load.x2 in
+                let l  = d_load.l in
+                let beam_length = float_of_int (beam_x1 - beam_x0) in
+                (beam_x0 + int_of_float (beam_length *. (x1 /. l)),
+                 beam_x0 + int_of_float (beam_length *. (x2 /. l)))
+            in
+            let (p1, p2) = (d_load.p1, d_load.p2) in
+            let line_grad = 10 * int_of_float (p2 -. p1) / (x2 - x1) in
+            let beam_y1 = beam_y + 20 in
+            let f (x) = beam_y1 + (line_grad * (x - x1)) in
+            let load_start_y1 = f (x1) in 
+            let load_start_y2 = f (x2) in
+            Graphics.moveto  x1  load_start_y1;
+            Graphics.lineto  x2  load_start_y2;
+            
+            let rec draw_arrow x f = 
+                let draw x =
+                    let start_y = f (x) in
+                    Graphics.moveto  x  start_y;
+                    Graphics.lineto  x  beam_y;
+                    Graphics.rlineto (-5) (+5); 
+                    Graphics.moveto  x  beam_y;
+                    Graphics.rlineto (+5) (+5)
+                in
+                if x2 < x 
+                then draw (x2)
+                else ( 
+                    draw (x);
+                    draw_arrow (x + 10) f
+                )
+            in
+            draw_arrow x1 f
 
 
+        (** 荷重を表示 *)
+        let draw_load lines status = 
+            Graphics.set_color red;
+            Interpriter.to_loads lines !line_index_ref
+            |> List.iter (fun load ->
+                match load with
+                | BeamLoad.Concentration c_load -> draw_concentration_load (c_load)
+                | BeamLoad.Distribution  d_load -> draw_distribution_load  (d_load)
+            )
+
+
+        (** 入力されているコマンドを表示 *)
         let draw_commands lines status = 
             let (x0, y0) = (20, h - 80) in
             lines
@@ -164,6 +196,7 @@ module Visual =
             |> push (key_action (lines))
             |> push (draw_beam)
             |> push (draw_commands (lines))
+            |> push (draw_load (lines))
             |> push (draw_cmq (lines))
             |> run active_events
 
