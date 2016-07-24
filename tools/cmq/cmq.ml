@@ -1,6 +1,6 @@
 
 
-(** CMQ計算 *)
+(** CMQ計算結果 *)
 module Cmq = 
     struct
         (** 型定義 *)
@@ -20,13 +20,14 @@ module Cmq =
             qb = 0.0;
             m0 = 0.0 
         }
-
-        let print t = 
-            Printf.printf "Cmq ca:%.2f cb:%.2f qa:%.2f qb:%.2f m0:%.2f"
-                          t.ca t.cb t.qa t.qb t.m0
+        
+        (** 文字列出力 *)
         let to_string t = 
             Printf.sprintf "Cmq ca:%.2f cb:%.2f qa:%.2f qb:%.2f m0:%.2f"
                            t.ca t.cb t.qa t.qb t.m0
+
+        (** 標準出力 *)
+        let print t = to_string (t) |> Printf.printf "%s"
 
         (** CMQ荷重を加算する *)
         let add (x, y) = {
@@ -67,6 +68,7 @@ module Cmq =
 
     end
 
+(** 集中荷重 *)
 module ConcentrationLoad = 
     struct
         type t = {
@@ -83,6 +85,8 @@ module ConcentrationLoad =
 
     end
 
+
+(** 分布荷重 *)
 module DistributionLoad = 
     struct 
         type t = {
@@ -105,6 +109,7 @@ module DistributionLoad =
     end
 ;;
 
+(** 梁荷重 *)
 module BeamLoad =
     struct
         type t = 
@@ -114,7 +119,6 @@ module BeamLoad =
         let to_cmq = function
             | Concentration (x) -> ConcentrationLoad.to_cmq (x)
             | Distribution  (x) -> DistributionLoad.to_cmq (x)
-
 
     end
 

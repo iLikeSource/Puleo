@@ -102,7 +102,7 @@ module Visual =
                 beam_x1 + int_of_float (beam_length *. (x1 /. l))
             in
             let p = c_load.p1 in
-            let load_start_y = beam_y + 40 in
+            let load_start_y = beam_y + 80 in
             Graphics.moveto  x  load_start_y;
             Graphics.lineto  x  beam_y;
             let () = 
@@ -119,43 +119,53 @@ module Visual =
             let open DistributionLoad in
             let (x1, x2) = (d_load.x1, d_load.x2) in
             let (p1, p2) = (d_load.p1, d_load.p2) in
-            let (draw_x1, draw_x2) = 
+            let draw_x (x) = 
                 let l  = d_load.l in
                 let beam_length = float_of_int (beam_x2 - beam_x1) in
-                (beam_x1 + int_of_float (beam_length *. (x1 /. l)),
-                 beam_x1 + int_of_float (beam_length *. (x2 /. l)))
+                beam_x1 + int_of_float (beam_length *. (x /. l))
             in
-            (* 分布荷重の描画用勾配 *)
-            let line_grad = 10 * int_of_float (p2 -. p1) / (draw_x2 - draw_x1) in
-            
+            let draw_x1 = draw_x (x1) in
+            let draw_x2 = draw_x (x2) in
+
+            (* 分布荷重の描画用高さ 
+               TODO p_max はSum用に全ケース通して取得するほうがよい
+             *)
+            let height (p) = 
+                let p_max = if p1 < p2 then p2 else p1 in
+                let p_max_pos = 40.0 in
+                p_max_pos *. p /. p_max 
+            in
             (* 分布荷重の高さ計算用関数 *)
-            let f (x) = beam_y + 20 + (line_grad * (x - draw_x1)) in
-            
+            let f (x) =
+                let p = p1 +. (x -. x1) *. (p2 -. p1) /. (x2 -. x1) in
+                beam_y + int_of_float (height (p))
+            in
             (* 分布荷重の開始点と終了点の矢印元端を結ぶ線を描画 *)
-            let load_start_y1 = f (draw_x1) in 
-            let load_start_y2 = f (draw_x2) in
+            let load_start_y1 = f (x1) in 
+            let load_start_y2 = f (x2) in
             Graphics.moveto  draw_x1  load_start_y1;
             Graphics.lineto  draw_x2  load_start_y2;
             
             (* 分布荷重の矢印を描画 *)
             let rec draw_arrow x f = 
-                let arrow_interval = 10 in
+                let arrow_interval = (x2 -. x1) /. 10.0 in
                 let draw x =
                     let start_y = f (x) in
-                    Graphics.moveto  x  start_y;
-                    Graphics.lineto  x  beam_y;
+                    let arrow_x = draw_x (x) in 
+                    Graphics.moveto  arrow_x  start_y;
+                    Graphics.lineto  arrow_x  beam_y;
                     Graphics.rlineto (-5) (+5); 
-                    Graphics.moveto  x  beam_y;
+                    Graphics.moveto  arrow_x  beam_y;
                     Graphics.rlineto (+5) (+5)
                 in
-                if draw_x2 < x then 
-                    draw (draw_x2)
+                if x2 < x then 
+                    draw (x2)
                 else ( 
                     draw (x);
-                    draw_arrow (x + arrow_interval) f
+                    draw_arrow (x +. arrow_interval) f
                 )
             in
-            draw_arrow draw_x1 f
+            draw_arrow x1 f
 
 
         (** 荷重を表示 *)
