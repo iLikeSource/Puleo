@@ -11,33 +11,87 @@ open Cmq
 
 module Interpriter =
     struct
+        
+        let parse_concentration_load (attrs) = 
+            let open Parser in
+            let l    = attrs |> Attr.find "l" in
+            let p1   = attrs |> Attr.find "p1" in
+            let x1   = attrs |> Attr.find "x1" in
+            let load = ConcentrationLoad.create ~l ~p1 ~x1 in
+            [ BeamLoad.Concentration (load) ]
+        
+        let parse_distribution_load (attrs) = 
+            let open Parser in
+            let l    = attrs |> Attr.find "l" in
+            let p1   = attrs |> Attr.find "p1" in
+            let p2   = attrs |> Attr.find "p2" in
+            let x1   = attrs |> Attr.find "x1" in
+            let x2   = attrs |> Attr.find "x2" in
+            let load = DistributionLoad.create ~l ~p1 ~p2 ~x1 ~x2 in 
+            [ BeamLoad.Distribution (load) ]
+        
+        let parse_load (line) = 
+            let open Parser in
+            let (cmnd, attr_tokens) = Parser.split_cmnd_attrs (line) in
+            let attrs = Parser.read_attr (attr_tokens) in
+            match cmnd with
+            | "Concentration" -> parse_concentration_load (attrs) 
+            | "Distribution"  -> parse_distribution_load (attrs) 
+            | _               -> [] 
+
+        let filter_loads lines f = 
+            let open Parser in
+            lines
+            |> Array.to_list
+            |> List.filter f
+            |> List.map parse_load
+            |> List.concat
+
+        let concentration_loads lines =
+            filter_loads lines begin fun line ->
+                let (cmnd, _) = Parser.split_cmnd_attrs (line) in
+                match cmnd with
+                | "Concentration" -> true
+                | _ -> false
+            end
+            |> List.map (fun x -> 
+                match x with 
+                | BeamLoad.Concentration (l) -> l 
+                | _ -> failwith "Invalid." 
+            )
+
+        let distribution_loads lines = 
+            filter_loads lines begin fun line ->
+                let (cmnd, _) = Parser.split_cmnd_attrs (line) in
+                match cmnd with
+                | "Distribution" -> true 
+                | _ -> false 
+            end
+            |> List.map (fun x -> 
+                match x with 
+                | BeamLoad.Distribution (l) -> l 
+                | _ -> failwith "Invalid." 
+            )
+        
+        (** 分布荷重の最大値取得 *)
+        let distribution_max_load lines = 
+            let open DistributionLoad in
+            let max (values) =
+                values 
+                |> List.map abs_float
+                |> List.fold_left (fun dst src -> 
+                    if dst < src then src else dst
+                ) 0.0
+            in
+            distribution_loads lines
+            |> List.map (fun load ->
+                [ load.p1; load.p2 ]
+            )
+            |> List.concat
+            |> max
+
         (** コマンドを解釈して荷重に変換 *)
         let to_loads lines index = 
-            let open Parser in
-            let parse_concentration_load (attrs) = 
-                let l    = attrs |> Attr.find "l" in
-                let p1   = attrs |> Attr.find "p1" in
-                let x1   = attrs |> Attr.find "x1" in
-                let load = ConcentrationLoad.create ~l ~p1 ~x1 in
-                [ BeamLoad.Concentration (load) ]
-            in
-            let parse_distribution_load (attrs) = 
-                let l    = attrs |> Attr.find "l" in
-                let p1   = attrs |> Attr.find "p1" in
-                let p2   = attrs |> Attr.find "p2" in
-                let x1   = attrs |> Attr.find "x1" in
-                let x2   = attrs |> Attr.find "x2" in
-                let load = DistributionLoad.create ~l ~p1 ~p2 ~x1 ~x2 in 
-                [ BeamLoad.Distribution (load) ]
-            in
-            let parse_load (line) = 
-                let (cmnd, attr_tokens) = Parser.split_cmnd_attrs (line) in
-                let attrs = Parser.read_attr (attr_tokens) in
-                match cmnd with
-                | "Concentration" -> parse_concentration_load (attrs) 
-                | "Distribution"  -> parse_distribution_load (attrs) 
-                | _               -> [] 
-            in
             let line = lines.(index) in
             let (cmnd, _) = Parser.split_cmnd_attrs (line) in
             match cmnd with
@@ -114,7 +168,7 @@ module Visual =
             Printf.sprintf "%.2f" p |>  draw_string 
 
         (** 分布荷重を描画 *)
-        let draw_distribution_load (d_load:DistributionLoad.t) = 
+        let draw_distribution_load p_max (d_load:DistributionLoad.t) = 
             Graphics.set_line_width 1;
             let open DistributionLoad in
             let (x1, x2) = (d_load.x1, d_load.x2) in
@@ -131,7 +185,6 @@ module Visual =
                TODO p_max はSum用に全ケース通して取得するほうがよい
              *)
             let height (p) = 
-                let p_max = if p1 < p2 then p2 else p1 in
                 let p_max_pos = 40.0 in
                 p_max_pos *. p /. p_max 
             in
@@ -169,13 +222,13 @@ module Visual =
 
 
         (** 荷重を表示 *)
-        let draw_load lines status = 
+        let draw_load p_max lines status = 
             Graphics.set_color red;
             Interpriter.to_loads lines !line_index_ref
             |> List.iter (fun load ->
                 match load with
-                | BeamLoad.Concentration c_load -> draw_concentration_load (c_load)
-                | BeamLoad.Distribution  d_load -> draw_distribution_load  (d_load)
+                | BeamLoad.Concentration c_load -> draw_concentration_load c_load
+                | BeamLoad.Distribution  d_load -> draw_distribution_load p_max d_load
             )
 
 
@@ -231,16 +284,21 @@ module Visual =
             | 'u' -> line_index_ref := (!line_index_ref + length - 1) mod length
             | 'd' -> line_index_ref := (!line_index_ref + length + 1) mod length
             | _   -> ()
+        
+        (** 分布荷重の最大高さを取得 *)
+        let distribution_load_max (lines) = 
+            ()
 
         (** 描画用処理 *)
         let visualize (lines) = 
             let () = init "cmq" in
+            let p_max = Interpriter.distribution_max_load (lines) in
             default_actions 
-            |> push (key_action (lines))
+            |> push (key_action lines)
             |> push (draw_beam)
-            |> push (draw_commands (lines))
-            |> push (draw_load (lines))
-            |> push (draw_cmq (lines))
+            |> push (draw_commands lines)
+            |> push (draw_load p_max lines)
+            |> push (draw_cmq lines)
             |> run active_events
 
     end
