@@ -1,4 +1,8 @@
+(* =============================
+    CMQの計算モジュール
 
+
+   ============================= *)
 
 (** CMQ計算結果 *)
 module Cmq = 
@@ -71,15 +75,17 @@ module Cmq =
 (** 集中荷重 *)
 module ConcentrationLoad = 
     struct
+        (** 型定義 *)
         type t = {
-            l  : float;
-            p1 : float;
-            x1 : float
+            l  : float;  (* 材長 *)  
+            p1 : float;  (* 荷重 *)
+            x1 : float   (* 左端から荷重点までの距離 *)
         }
 
+        (** 生成 *)
         let create ~l ~p1 ~x1 = { l; p1; x1 }
-            
 
+        (** CQM荷重に変換 *)
         let to_cmq (t) = 
             Cmq.concentration_load ~l:t.l ~p:t.p1 ~x:t.x1 
 
@@ -89,16 +95,19 @@ module ConcentrationLoad =
 (** 分布荷重 *)
 module DistributionLoad = 
     struct 
+        (** 型定義 *)
         type t = {
-            l  : float;
-            p1 : float;
-            p2 : float;
-            x1 : float;
-            x2 : float;
+            l  : float;  (* 材長 *)  
+            p1 : float;  (* 荷重開始点の単位長さあたり荷重 *)
+            p2 : float;  (* 荷重終了点の単位長さあたり荷重 *)
+            x1 : float;  (* 左端から荷重開始点までの距離 *)
+            x2 : float;  (* 左端から荷重終了点までの距離 *)
         }
         
+        (** 生成 *)
         let create ~l ~p1 ~p2 ~x1 ~x2 = { l; p1; x1; p2; x2 }
 
+        (** CMQ荷重に変換 *)
         let to_cmq (t) = 
             if t.x1 = t.x2 
             then Cmq.empty ()
@@ -112,10 +121,12 @@ module DistributionLoad =
 (** 梁荷重 *)
 module BeamLoad =
     struct
+        (** 型定義 *)
         type t = 
             | Concentration of ConcentrationLoad.t
             | Distribution  of DistributionLoad.t
 
+        (** CMQ荷重に変換 *)
         let to_cmq = function
             | Concentration (x) -> ConcentrationLoad.to_cmq (x)
             | Distribution  (x) -> DistributionLoad.to_cmq (x)
