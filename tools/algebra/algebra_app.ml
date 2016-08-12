@@ -14,9 +14,17 @@ module Visual =
             let v3 = Vector.bisector v1 v2 in
             
             let () = 
-                let (x, y) = v3 in
-                Graphics.moveto (w - 100) (h - 100);
-                Printf.sprintf "(%.3f, %.3f)" x y |> Graphics.draw_string 
+                Graphics.moveto (w - 150) (h - 100);
+                Printf.sprintf "v1: %.5f" (Vector.angle_rad (v1)) 
+                |> Graphics.draw_string ;
+                
+                Graphics.moveto (w - 150) (h -  90);
+                Printf.sprintf "v2: %.5f" (Vector.angle_rad (v2)) 
+                |> Graphics.draw_string; 
+                
+                Graphics.moveto (w - 150) (h -  80);
+                Printf.sprintf "v3: %.5f" (Vector.angle_rad (v3)) 
+                |> Graphics.draw_string; 
             in
             let pos (x, y) =
                 (draw_ox + int_of_float (x *. magnify),
